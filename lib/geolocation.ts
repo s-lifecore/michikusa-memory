@@ -65,10 +65,9 @@ function calculateBrightness(hour: number): GeoLocation['brightness'] {
         return 'afternoon';
     } else if (hour >= 18 && hour < 21) {
         return 'evening';
-    } else if (hour >= 21 || hour < 5) {
+    } else {
         return 'night';
     }
-    return 'dark';
 }
 
 /**

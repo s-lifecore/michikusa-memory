@@ -32,104 +32,67 @@ export function formatFileSize(bytes: number): string {
 
 /**
  * 画像を圧縮
- * @param file - 圧縮対象のファイル
- * @param options - 圧縮オプション
- * @returns 圧縮されたBlob
+ * createImageBitmap でデコード（base64変換不要）→ Canvas でリサイズ
+ * FileReader.readAsDataURL より約30%メモリ効率が良く、EXIF回転も自動補正される
+ * 対応: Chrome 54+, Safari iOS 15+, Firefox 98+
  */
 export async function compressImage(
     file: File,
     options: CompressionOptions = {}
 ): Promise<Blob> {
     const opts = { ...DEFAULT_OPTIONS, ...options };
+    const maxWidth = opts.maxWidth || 1024;
+    const maxHeight = opts.maxHeight || 1024;
+    const maxBytes = (opts.maxSizeMB || 5) * 1024 * 1024;
 
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = (e) => {
-            const img = new Image();
-
-            img.onload = () => {
-                try {
-                    // キャンバスにスケールダウンして描画
-                    const canvas = document.createElement('canvas');
-                    let { width, height } = img;
-
-                    // アスペクト比を保ったまま、最大サイズにリサイズ
-                    if (opts.maxWidth && opts.maxHeight) {
-                        const maxWidth = opts.maxWidth;
-                        const maxHeight = opts.maxHeight;
-
-                        if (width > maxWidth || height > maxHeight) {
-                            const aspectRatio = width / height;
-                            if (width > height) {
-                                width = maxWidth;
-                                height = Math.round(width / aspectRatio);
-                            } else {
-                                height = maxHeight;
-                                width = Math.round(height * aspectRatio);
-                            }
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-
-                    // 高品質な描画
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) throw new Error('Failed to get canvas context');
-
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    // MIME type 設定
-                    const mimeType = opts.format === 'webp' ? 'image/webp' : 'image/jpeg';
-
-                    // canvas から blob に変換
-                    canvas.toBlob(
-                        (blob) => {
-                            if (!blob) {
-                                reject(new Error('Failed to compress image'));
-                                return;
-                            }
-
-                            // サイズが大きい場合は品質を下げてリトライ
-                            const maxBytes = (opts.maxSizeMB || 5) * 1024 * 1024;
-                            if (blob.size > maxBytes) {
-                                // 品質を80%まで下げる
-                                const lowerQuality = Math.max(opts.quality! - 0.1, 0.5);
-                                compressImage(file, { ...opts, quality: lowerQuality })
-                                    .then(resolve)
-                                    .catch(reject);
-                                return;
-                            }
-
-                            resolve(blob);
-
-                            // メモリ解放
-                            canvas.width = 0;
-                            canvas.height = 0;
-                        },
-                        mimeType,
-                        opts.quality
-                    );
-                } catch (error) {
-                    reject(error);
-                }
-            };
-
-            img.onerror = () => {
-                reject(new Error('Failed to load image'));
-            };
-
-            img.src = e.target?.result as string;
-        };
-
-        reader.onerror = () => {
-            reject(new Error('Failed to read file'));
-        };
-
-        // 小さいメモリ用にデータURLで読み込む
-        reader.readAsDataURL(file);
+    const bitmap = await createImageBitmap(file, {
+        imageOrientation: 'from-image',
     });
+
+    let { width, height } = bitmap;
+    if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        bitmap.close();
+        throw new Error('Failed to get canvas context');
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const mimeType = opts.format === 'webp' ? 'image/webp' : 'image/jpeg';
+    let quality = opts.quality ?? 0.8;
+
+    while (quality >= 0.4) {
+        const blob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob(resolve, mimeType, quality);
+        });
+
+        if (!blob) {
+            canvas.width = 0;
+            canvas.height = 0;
+            throw new Error('Failed to compress image');
+        }
+
+        if (blob.size <= maxBytes) {
+            canvas.width = 0;
+            canvas.height = 0;
+            return blob;
+        }
+
+        quality = Math.round((quality - 0.1) * 10) / 10;
+    }
+
+    canvas.width = 0;
+    canvas.height = 0;
+    throw new Error('画像を規定サイズ内に圧縮できませんでした');
 }
 
 /**

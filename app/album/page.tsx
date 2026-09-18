@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { UserLog } from '@/lib/types';
 import { getLogsFromFirestore, deleteLogFromFirestore } from '@/lib/firestore';
 import { getErrorMessage, showErrorNotification, showSuccessNotification, showConfirmModal } from '@/lib/errorHandler';
+import Image from 'next/image';
 import { getThumbnailUrl, getMediumUrl, isAllowedImageUrl } from '@/lib/cloudinary';
-import { ensureAuthenticated } from '@/lib/firebase';
+import { ensureAuthenticated, hasUserIdClaim } from '@/lib/firebase';
 import styles from './album.module.css';
 
 export default function AlbumPage() {
@@ -31,6 +32,13 @@ export default function AlbumPage() {
             try {
                 // 認証を確保
                 await ensureAuthenticated();
+
+                // カスタムクレームがない場合は再認証へ
+                const hasClaim = await hasUserIdClaim(storedUserId);
+                if (!hasClaim) {
+                    router.push('/setup');
+                    return;
+                }
 
                 const firestoreLogs = await getLogsFromFirestore(storedUserId);
 
@@ -164,15 +172,23 @@ export default function AlbumPage() {
 
                         {((selectedLog.imageUrl && isAllowedImageUrl(selectedLog.imageUrl, userId || undefined)) || selectedLog.imageData) && (
                             <div className={styles.detailImageContainer}>
-                                <img
-                                    src={
-                                        selectedLog.imageUrl && isAllowedImageUrl(selectedLog.imageUrl, userId || undefined)
-                                            ? getMediumUrl(selectedLog.imageUrl)
-                                            : selectedLog.imageData || ''
-                                    }
-                                    alt="冒険の写真"
-                                    className={styles.detailImage}
-                                />
+                                {selectedLog.imageUrl && isAllowedImageUrl(selectedLog.imageUrl, userId || undefined) ? (
+                                    <Image
+                                        src={getMediumUrl(selectedLog.imageUrl)}
+                                        alt="冒険の写真"
+                                        width={800}
+                                        height={600}
+                                        style={{ objectFit: 'contain' }}
+                                        className={styles.detailImage}
+                                        unoptimized
+                                    />
+                                ) : (
+                                    <img
+                                        src={selectedLog.imageData || ''}
+                                        alt="冒険の写真"
+                                        className={styles.detailImage}
+                                    />
+                                )}
                             </div>
                         )}
 
@@ -242,15 +258,23 @@ export default function AlbumPage() {
 
                             {((log.imageUrl && isAllowedImageUrl(log.imageUrl, userId || undefined)) || log.imageData) && (
                                 <div className={styles.logImageContainer}>
-                                    <img
-                                        src={
-                                            log.imageUrl && isAllowedImageUrl(log.imageUrl, userId || undefined)
-                                                ? getThumbnailUrl(log.imageUrl)
-                                                : log.imageData || ''
-                                        }
-                                        alt="冒険の写真"
-                                        className={styles.logImage}
-                                    />
+                                    {log.imageUrl && isAllowedImageUrl(log.imageUrl, userId || undefined) ? (
+                                        <Image
+                                            src={getThumbnailUrl(log.imageUrl)}
+                                            alt="冒険の写真"
+                                            width={150}
+                                            height={150}
+                                            style={{ objectFit: 'cover' }}
+                                            className={styles.logImage}
+                                            unoptimized
+                                        />
+                                    ) : (
+                                        <img
+                                            src={log.imageData || ''}
+                                            alt="冒険の写真"
+                                            className={styles.logImage}
+                                        />
+                                    )}
                                 </div>
                             )}
 

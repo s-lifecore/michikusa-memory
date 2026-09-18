@@ -45,22 +45,42 @@ export default function OraclePage() {
     const generateNewMission = async () => {
         setIsLoading(true);
 
-        // 位置情報とタイムゾーンを取得（オプション）
-        let locationInfo = null;
-        let brightnessLevel = 'day';
-        let localHour = new Date().getHours();
+        // 位置情報とタイムゾーンを取得（セッション内15分キャッシュ）
+        const LOCATION_CACHE_KEY = 'michikusa_location_cache';
+        const LOCATION_CACHE_TTL = 15 * 60 * 1000;
 
+        let locationInfo = null;
         try {
-            locationInfo = await getLocationInfo();
-            if (locationInfo) {
-                console.log('[Oracle] Location info:', locationInfo);
-                brightnessLevel = locationInfo.brightness;
-                if (locationInfo.localDateTime) {
-                    localHour = locationInfo.localDateTime.getHours();
+            const cached = sessionStorage.getItem(LOCATION_CACHE_KEY);
+            if (cached) {
+                const { data, timestamp } = JSON.parse(cached);
+                if (Date.now() - timestamp < LOCATION_CACHE_TTL) {
+                    locationInfo = data;
                 }
             }
-        } catch (error) {
-            console.warn('[Oracle] Failed to get location info:', error);
+        } catch { /* ignore */ }
+
+        if (!locationInfo) {
+            try {
+                locationInfo = await getLocationInfo();
+                if (locationInfo) {
+                    sessionStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({
+                        data: locationInfo,
+                        timestamp: Date.now(),
+                    }));
+                }
+            } catch (error) {
+                console.warn('[Oracle] Failed to get location info:', error);
+            }
+        }
+
+        let brightnessLevel = 'day';
+        let localHour = new Date().getHours();
+        if (locationInfo) {
+            brightnessLevel = locationInfo.brightness;
+            if (locationInfo.localDateTime) {
+                localHour = new Date(locationInfo.localDateTime).getHours();
+            }
         }
 
         // AI生成を試みる
@@ -116,7 +136,7 @@ export default function OraclePage() {
                 const diff = now.getTime() - startTime.getTime();
                 const minutes = Math.floor(diff / 60000);
                 setElapsedMinutes(minutes);
-            }, 1000);
+            }, 60000);
 
             return () => clearInterval(interval);
         }
