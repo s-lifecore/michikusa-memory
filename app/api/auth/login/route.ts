@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { getAdminFirestore } from '@/lib/firebase-admin';
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
 import { validatePassword, validateUserId } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -121,6 +121,16 @@ export async function POST(req: NextRequest) {
         resetAttempts(key);
 
         await userRef.set({ lastLoginAt: new Date().toISOString() }, { merge: true });
+
+        // Firebase トークンにカスタムクレームとして userId を埋め込む
+        const firebaseUid = String(body?.firebaseUid || '').trim();
+        if (firebaseUid) {
+            try {
+                await getAdminAuth().setCustomUserClaims(firebaseUid, { userId });
+            } catch (claimError) {
+                console.error('Failed to set custom claim:', claimError);
+            }
+        }
 
         const logsSnap = await userRef.collection('logs').orderBy('createdAt', 'desc').get();
         const logs = logsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));

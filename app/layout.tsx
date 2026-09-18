@@ -151,7 +151,7 @@ export default function RootLayout({
         <html lang="ja" suppressHydrationWarning>
             <head>
                 {/* Permissions Policy for camera access */}
-                <meta name="permissions-policy" content="camera=*, microphone=*" />
+                <meta name="permissions-policy" content="camera=*" />
                 <meta name="google-adsense-account" content="ca-pub-8577012795231841" />
 
                 {/* hreflang タグ */}

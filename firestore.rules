@@ -3,21 +3,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // users コレクション（認証済みユーザーアクセス）
+    // users コレクション
+    // カスタムクレーム（userId）でログイン済みユーザー本人のみアクセス可
+    // 管理者操作はすべて Firebase Admin SDK (API ルート) 経由で行うため、
+    // クライアント直アクセスは本人に限定する
     match /users/{userId} {
-      // 認証されたユーザー（匿名認証を含む）は読み取り・書き込み可
-      // 注: カスタム認証(userId/password)とFirebase匿名認証を併用
-      allow read, write: if request.auth != null;
-      
-      // 管理者は読み取りのみ可（passwordHash を含む全フィールド閲覧可）
-      // 注意: 管理者ツールは API 層で passwordHash を除外すること
-      allow read: if request.auth != null && 
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-      
+      allow read, write: if request.auth != null
+        && request.auth.token.userId == userId;
+
       // logs サブコレクション
       match /logs/{logId} {
-        // 認証されたユーザーは読み取り・書き込み可
-        allow read, write: if request.auth != null;
+        allow read, write: if request.auth != null
+          && request.auth.token.userId == userId;
       }
     }
 

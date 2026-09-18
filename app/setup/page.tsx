@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { validateUserId, validatePassword } from '@/lib/validation';
 import { savePasswordHash } from '@/lib/password';
-import { ensureAuthenticated } from '@/lib/firebase';
+import { ensureAuthenticated, getCurrentFirebaseUid, refreshAuthToken } from '@/lib/firebase';
 import styles from './setup.module.css';
 
 export default function SetupPage() {
@@ -89,10 +89,12 @@ export default function SetupPage() {
         setIsLoading(true);
 
         try {
+            await ensureAuthenticated();
+            const firebaseUid = getCurrentFirebaseUid() || '';
             const response = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, password }),
+                body: JSON.stringify({ userId, password, firebaseUid }),
             });
 
             const data = await response.json().catch(() => ({}));
@@ -146,6 +148,9 @@ export default function SetupPage() {
             // ログイン試行回数をリセット
             resetLoginAttempt();
 
+            // カスタムクレームが反映されるようにトークンを強制リフレッシュ
+            await refreshAuthToken();
+
             // 4. サーバーからログを受け取り localStorage にキャッシュ
             const logs = Array.isArray(data.logs) ? data.logs : [];
             localStorage.setItem('reborn_logs', JSON.stringify(logs));
@@ -182,10 +187,12 @@ export default function SetupPage() {
         setIsLoading(true);
 
         try {
+            await ensureAuthenticated();
+            const firebaseUid = getCurrentFirebaseUid() || '';
             const response = await fetch('/api/auth/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, password }),
+                body: JSON.stringify({ userId, password, firebaseUid }),
             });
 
             const data = await response.json().catch(() => ({}));
@@ -213,6 +220,9 @@ export default function SetupPage() {
             localStorage.setItem('reborn_userId', userId);
             localStorage.setItem('reborn_createdAt', new Date().toISOString());
             localStorage.setItem('reborn_logs', JSON.stringify([]));
+
+            // カスタムクレームが反映されるようにトークンを強制リフレッシュ
+            await refreshAuthToken();
 
             // 5. ホームへリダイレクト
             router.push('/');

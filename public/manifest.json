@@ -26,7 +26,7 @@
             "purpose": "any maskable"
         }
     ],
-    "permissions": ["camera", "microphone"],
+    "permissions": ["camera"],
     "screenshots": [],
     "serviceworker": {
         "src": "/sw.js",

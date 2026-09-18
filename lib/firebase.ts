@@ -39,6 +39,22 @@ if (typeof window !== 'undefined') {
 
 export { app, db, auth };
 
+export function getCurrentFirebaseUid(): string | null {
+    if (typeof window === 'undefined' || !auth?.currentUser) return null;
+    return auth.currentUser.uid;
+}
+
+export async function refreshAuthToken(): Promise<void> {
+    if (typeof window === 'undefined' || !auth?.currentUser) return;
+    await auth.currentUser.getIdToken(true);
+}
+
+export async function hasUserIdClaim(userId: string): Promise<boolean> {
+    if (typeof window === 'undefined' || !auth?.currentUser) return false;
+    const result = await auth.currentUser.getIdTokenResult();
+    return result.claims['userId'] === userId;
+}
+
 /**
  * Firebase匿名認証を確実に実行する
  */

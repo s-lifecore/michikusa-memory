@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Script from 'next/script';
 import { resetPassword } from '@/lib/password';
-import { verifyPassword } from '@/lib/password';
 import { deleteUserAccount, createBackupData, restoreLogsToFirestore } from '@/lib/firestore';
 import { getErrorMessage, showErrorNotification, showSuccessNotification, showConfirmModal } from '@/lib/errorHandler';
+import { ensureAuthenticated, hasUserIdClaim } from '@/lib/firebase';
 import styles from './mypage.module.css';
 
 // 復元試行管理用の型定義
@@ -36,9 +35,8 @@ export default function MyPage() {
             router.push('/setup');
             return;
         }
-        setUserId(storedUserId);
 
-        // 統計情報取得
+        // 統計情報取得（同期）
         const logsString = localStorage.getItem('reborn_logs') || '[]';
         const logs = JSON.parse(logsString);
         setTotalAdventures(logs.length);
@@ -53,6 +51,20 @@ export default function MyPage() {
                 console.error('復元試行データの読み込みに失敗しました:', e);
             }
         }
+
+        // カスタムクレームがない場合は再認証へ（非同期チェック）
+        ensureAuthenticated()
+            .then(() => hasUserIdClaim(storedUserId))
+            .then((hasClaim) => {
+                if (!hasClaim) {
+                    router.push('/setup');
+                    return;
+                }
+                setUserId(storedUserId);
+            })
+            .catch(() => {
+                router.push('/setup');
+            });
     }, [router]);
 
     const handleBackup = async () => {
@@ -99,14 +111,20 @@ export default function MyPage() {
             }
         }
 
-        // パスワードを検証
-        const storedPasswordHash = localStorage.getItem('michikusa_memory_password_hash');
-        if (!storedPasswordHash) {
-            setError('パスワードが設定されていません');
+        // パスワードをサーバー側（Firestore）で検証
+        let isValid = false;
+        try {
+            const verifyResponse = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: restoreUserId, password: restorePassword }),
+            });
+            const verifyData = await verifyResponse.json().catch(() => ({}));
+            isValid = verifyResponse.ok && verifyData.ok === true;
+        } catch {
+            setError('サーバーへの接続に失敗しました。しばらくしてから再度お試しください。');
             return;
         }
-
-        const isValid = await verifyPassword(restorePassword, storedPasswordHash);
 
         if (restoreUserId !== userId || !isValid) {
             // 失敗カウントをインクリメント
@@ -180,14 +198,26 @@ export default function MyPage() {
     const handlePasswordReset = async () => {
         setPasswordResetError('');
 
-        // 現在のパスワードを検証
-        const storedPasswordHash = localStorage.getItem('michikusa_memory_password_hash');
-        if (!storedPasswordHash) {
-            setPasswordResetError('パスワードが設定されていません');
+        if (!userId) {
+            setPasswordResetError('ユーザーIDが取得できません');
             return;
         }
 
-        const isValid = await verifyPassword(currentPassword, storedPasswordHash);
+        // 現在のパスワードをサーバー側（Firestore）で検証
+        let isValid = false;
+        try {
+            const verifyResponse = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, password: currentPassword }),
+            });
+            const verifyData = await verifyResponse.json().catch(() => ({}));
+            isValid = verifyResponse.ok && verifyData.ok === true;
+        } catch {
+            setPasswordResetError('サーバーへの接続に失敗しました');
+            return;
+        }
+
         if (!isValid) {
             setPasswordResetError('現在のパスワードが正しくありません');
             return;
@@ -270,23 +300,6 @@ export default function MyPage() {
 
     return (
         <>
-            {/* Google Analytics */}
-            <Script
-                strategy="afterInteractive"
-                src="https://www.googletagmanager.com/gtag/js?id=G-V51YH5JYTD"
-            />
-            <Script
-                id="google-analytics-mypage"
-                strategy="afterInteractive"
-                dangerouslySetInnerHTML={{
-                    __html: `
-                        window.dataLayer = window.dataLayer || [];
-                        function gtag(){dataLayer.push(arguments);}
-                        gtag('js', new Date());
-                        gtag('config', 'G-V51YH5JYTD');
-                    `,
-                }}
-            />
             <div className={styles.container}>
                 <main className={styles.main}>
                     <div className={styles.headerContainer}>

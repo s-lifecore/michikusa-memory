@@ -49,3 +49,7 @@ export function getAdminApp() {
 export function getAdminFirestore() {
     return getAdminApp().firestore();
 }
+
+export function getAdminAuth() {
+    return getAdminApp().auth();
+}

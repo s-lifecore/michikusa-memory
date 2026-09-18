@@ -11,10 +11,13 @@ export interface AdminJWTPayload {
   exp?: number;
 }
 
-/**
- * JWT シークレットキー（環境変数から取得）
- */
-const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'your-secret-key-change-in-production';
+function getJwtSecret(): string {
+    const secret = process.env.ADMIN_JWT_SECRET;
+    if (!secret) {
+        throw new Error('ADMIN_JWT_SECRET 環境変数が設定されていません。本番環境では必ず設定してください。');
+    }
+    return secret;
+}
 
 /**
  * トークンの有効期限（秒）: 8時間
@@ -27,7 +30,7 @@ const TOKEN_EXPIRY = 8 * 60 * 60;
  * @returns トークン
  */
 export function generateToken(payload: Omit<AdminJWTPayload, 'iat' | 'exp'>): string {
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, getJwtSecret(), {
     expiresIn: TOKEN_EXPIRY,
   });
 }
@@ -39,7 +42,7 @@ export function generateToken(payload: Omit<AdminJWTPayload, 'iat' | 'exp'>): st
  */
 export function verifyToken(token: string): AdminJWTPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AdminJWTPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as AdminJWTPayload;
     return decoded;
   } catch (error) {
     console.error('[JWT] Token verification failed:', error);
