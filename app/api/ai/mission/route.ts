@@ -7,7 +7,7 @@
  *   用途: ユーザーの時間帯・天候・位置情報・タイムゾーン・明るさに基づいて
  *        パーソナライズされたミッション（お題）を生成
  *   認証: API キー (環境変数: AI_PROVIDER_API_KEY または GEMINI_API_KEY)
- *   モデル: gemini-1.5-flash-latest (高速・低コスト)
+ *   モデル: gemini-3.8-flash (高速・低コスト)
  * 
  * リクエスト形式:
  * POST /api/ai/mission
@@ -69,8 +69,7 @@ function checkRateLimit(ip: string, now: number): boolean {
 
 // 環境変数の取得（優先順位: AI_PROVIDER_API_KEY > GEMINI_API_KEY）
 const GEMINI_API_KEY = process.env.AI_PROVIDER_API_KEY || process.env.GEMINI_API_KEY;
-// モデル名を環境変数から取得。未設定の場合は 'gemini-1.5-flash-latest' を使用
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 const SYSTEM_PROMPT = `あなたは「michikusa_memory」という散歩アプリのミッション生成AIです。
 ユーザーに散歩のミッションを与える役割を持っています。
