@@ -41,13 +41,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { getRandomFallbackMission } from '@/data/fallbackMissions';
 
-// 開発環境での SSL 証明書検証緩和（テスト用）
-if (process.env.NODE_ENV === 'development') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const rateLimitMap = new Map<string, { count: number; firstAt: number }>();
+
+function getClientIp(req: NextRequest): string {
+    const forwarded = req.headers.get('x-forwarded-for');
+    if (forwarded) return forwarded.split(',')[0].trim();
+    const realIp = req.headers.get('x-real-ip');
+    if (realIp) return realIp;
+    return 'unknown';
+}
+
+function checkRateLimit(ip: string, now: number): boolean {
+    const state = rateLimitMap.get(ip);
+    if (!state || now - state.firstAt > RATE_LIMIT_WINDOW_MS) {
+        rateLimitMap.set(ip, { count: 1, firstAt: now });
+        return true;
+    }
+    if (state.count >= RATE_LIMIT_MAX) return false;
+    rateLimitMap.set(ip, { ...state, count: state.count + 1 });
+    return true;
+}
 
 // 環境変数の取得（優先順位: AI_PROVIDER_API_KEY > GEMINI_API_KEY）
 const GEMINI_API_KEY = process.env.AI_PROVIDER_API_KEY || process.env.GEMINI_API_KEY;
@@ -115,6 +133,14 @@ function getBrightnessDescription(brightness: string): string {
 }
 
 export async function POST(req: NextRequest) {
+    const ip = getClientIp(req);
+    if (!checkRateLimit(ip, Date.now())) {
+        return NextResponse.json(
+            { ok: false, code: 'RATE_LIMIT' },
+            { status: 429 }
+        );
+    }
+
     try {
         const body = await req.json();
         const context = body?.context || {};
