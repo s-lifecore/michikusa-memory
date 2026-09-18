@@ -8,16 +8,10 @@ import { getTokenFromStorage } from '@/lib/admin-jwt';
 
 interface User {
   userId: string;
-  email: string;
-  username: string;
   createdAt: string;
-  updatedAt: string | null;
   lastLoginAt: string | null;
-  totalWalks: number;
-  totalDistance: number;
-  totalDuration: number;
-  profileImageUrl: string | null;
-  isActive: boolean;
+  totalAdventures: number;
+  profileImageUrl?: string | null;
 }
 
 interface UserStats {
@@ -66,9 +60,8 @@ export default function UsersPage() {
         }
 
         const response = await fetch(`/api/admin/users?${params}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
         });
 
         if (!response.ok) {
@@ -93,6 +86,28 @@ export default function UsersPage() {
     fetchUsers();
   }, [admin, authLoading, offset, searchQuery, limit]);
 
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm(`ユーザー「${userId}」を削除しますか？\nすべての冒険記録も削除されます。この操作は取り消せません。`)) return;
+
+    try {
+      const token = getTokenFromStorage();
+      if (!token) return;
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '削除に失敗しました');
+        return;
+      }
+      setUsers((prev) => prev.filter((u) => u.userId !== userId));
+      setTotal((prev) => prev - 1);
+    } catch {
+      alert('削除中にエラーが発生しました');
+    }
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setOffset(0); // 検索時は最初のページに戻る
@@ -116,13 +131,6 @@ export default function UsersPage() {
       month: '2-digit',
       day: '2-digit',
     });
-  };
-
-  const formatDistance = (meters: number) => {
-    if (meters < 1000) {
-      return `${meters}m`;
-    }
-    return `${(meters / 1000).toFixed(1)}km`;
   };
 
   if (authLoading || isLoading) {
@@ -160,23 +168,23 @@ export default function UsersPage() {
           <div className={styles.statsGrid}>
             <div className={styles.statCard}>
               <div className={styles.statLabel}>総ユーザー数</div>
-              <div className={styles.statValue}>{stats.totalUsers.toLocaleString()}</div>
+              <div className={styles.statValue}>{(stats.totalUsers ?? 0).toLocaleString()}</div>
             </div>
             <div className={styles.statCard}>
               <div className={styles.statLabel}>アクティブ</div>
-              <div className={styles.statValue}>{stats.activeUsers.toLocaleString()}</div>
+              <div className={styles.statValue}>{(stats.activeUsers ?? 0).toLocaleString()}</div>
             </div>
             <div className={styles.statCard}>
               <div className={styles.statLabel}>今日の新規</div>
-              <div className={styles.statValue}>{stats.newUsersToday.toLocaleString()}</div>
+              <div className={styles.statValue}>{(stats.newUsersToday ?? 0).toLocaleString()}</div>
             </div>
             <div className={styles.statCard}>
               <div className={styles.statLabel}>今週の新規</div>
-              <div className={styles.statValue}>{stats.newUsersThisWeek.toLocaleString()}</div>
+              <div className={styles.statValue}>{(stats.newUsersThisWeek ?? 0).toLocaleString()}</div>
             </div>
             <div className={styles.statCard}>
               <div className={styles.statLabel}>今月の新規</div>
-              <div className={styles.statValue}>{stats.newUsersThisMonth.toLocaleString()}</div>
+              <div className={styles.statValue}>{(stats.newUsersThisMonth ?? 0).toLocaleString()}</div>
             </div>
           </div>
         )}
@@ -187,7 +195,7 @@ export default function UsersPage() {
             <input
               type="text"
               className={styles.searchInput}
-              placeholder="メールアドレスで検索..."
+              placeholder="ユーザーIDで検索..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -210,12 +218,10 @@ export default function UsersPage() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>ユーザー情報</th>
+                    <th>ユーザーID</th>
                     <th>登録日</th>
                     <th>最終ログイン</th>
-                    <th>散歩回数</th>
-                    <th>総距離</th>
-                    <th>ステータス</th>
+                    <th>冒険回数</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -223,28 +229,24 @@ export default function UsersPage() {
                   {users.map((user) => (
                     <tr key={user.userId}>
                       <td>
-                        <div className={styles.userInfo}>
-                          <span className={styles.userName}>{user.username}</span>
-                          <span className={styles.userEmail}>{user.email}</span>
-                        </div>
+                        <span className={styles.userName}>{user.userId}</span>
                       </td>
                       <td>{formatDate(user.createdAt)}</td>
                       <td>{formatDate(user.lastLoginAt)}</td>
-                      <td>{user.totalWalks.toLocaleString()}回</td>
-                      <td>{formatDistance(user.totalDistance)}</td>
-                      <td>
-                        <span
-                          className={`${styles.statusBadge} ${
-                            user.isActive ? styles.statusActive : styles.statusInactive
-                          }`}
-                        >
-                          {user.isActive ? 'アクティブ' : '無効'}
-                        </span>
-                      </td>
-                      <td>
+                      <td>{Number(user.totalAdventures ?? 0).toLocaleString()}回</td>
+                      <td style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <Link href={`/admin/users/${user.userId}`}>
                           <button className={styles.actionButton}>詳細</button>
                         </Link>
+                        {(admin?.role === 'admin' || admin?.role === 'superadmin') && (
+                          <button
+                            className={styles.actionButton}
+                            style={{ background: '#dc2626', color: 'white', border: 'none' }}
+                            onClick={() => handleDeleteUser(user.userId)}
+                          >
+                            削除
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

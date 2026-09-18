@@ -3,22 +3,16 @@
  */
 
 import { getAdminDb } from './admin-firestore';
-import { Timestamp } from 'firebase-admin/firestore';
 
 const db = getAdminDb();
 
 export interface User {
     userId: string;
-    email: string;
-    username: string;
-    createdAt: Timestamp;
-    updatedAt: Timestamp | null;
-    lastLoginAt: Timestamp | null;
-    totalWalks: number;
-    totalDistance: number; // メートル単位
-    totalDuration: number; // 分単位
-    profileImageUrl: string | null;
-    isActive: boolean;
+    passwordHash?: string;
+    createdAt: string;
+    lastLoginAt: string | null;
+    totalAdventures: number;
+    profileImageUrl?: string | null;
 }
 
 export interface UserStats {
@@ -38,14 +32,21 @@ export async function getUsers(
     searchQuery?: string
 ): Promise<{ users: User[]; total: number }> {
     try {
-        let query = db.collection('users').orderBy('createdAt', 'desc');
+        // createdAt は ISO 文字列なので辞書順で降順ソート可能
+        let query = db.collection('users').orderBy('createdAt', 'desc') as FirebaseFirestore.Query;
 
-        // 検索クエリがある場合（メールアドレスまたはユーザー名）
         if (searchQuery) {
-            // Firestoreの制限により、完全一致または前方一致のみ対応
-            query = query
-                .where('email', '>=', searchQuery)
-                .where('email', '<=', searchQuery + '\uf8ff');
+            // userId の前方一致検索（orderBy と where を同フィールドにしないため別クエリ）
+            const searchSnapshot = await db.collection('users')
+                .where('userId', '>=', searchQuery)
+                .where('userId', '<=', searchQuery + '')
+                .get();
+
+            const users: User[] = [];
+            searchSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+                users.push({ userId: doc.id, ...doc.data() } as User);
+            });
+            return { users, total: users.length };
         }
 
         // 総数を取得
@@ -57,10 +58,7 @@ export async function getUsers(
 
         const users: User[] = [];
         snapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-            users.push({
-                userId: doc.id,
-                ...doc.data(),
-            } as User);
+            users.push({ userId: doc.id, ...doc.data() } as User);
         });
 
         return { users, total };
@@ -81,10 +79,7 @@ export async function getUserById(userId: string): Promise<User | null> {
             return null;
         }
 
-        return {
-            userId: doc.id,
-            ...doc.data(),
-        } as User;
+        return { userId: doc.id, ...doc.data() } as User;
     } catch (error) {
         console.error('[Admin Users] Error getting user by ID:', error);
         throw error;
@@ -96,43 +91,23 @@ export async function getUserById(userId: string): Promise<User | null> {
  */
 export async function deleteUser(userId: string): Promise<void> {
     try {
-        // ユーザーの散歩記録も削除
         const logsSnapshot = await db
+            .collection('users')
+            .doc(userId)
             .collection('logs')
-            .where('userId', '==', userId)
             .get();
 
         const batch = db.batch();
 
-        // 散歩記録を削除
         logsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
             batch.delete(doc.ref);
         });
 
-        // ユーザーを削除
         batch.delete(db.collection('users').doc(userId));
 
         await batch.commit();
     } catch (error) {
         console.error('[Admin Users] Error deleting user:', error);
-        throw error;
-    }
-}
-
-/**
- * ユーザーのアクティブ状態を更新
- */
-export async function updateUserStatus(
-    userId: string,
-    isActive: boolean
-): Promise<void> {
-    try {
-        await db.collection('users').doc(userId).update({
-            isActive,
-            updatedAt: Timestamp.now(),
-        });
-    } catch (error) {
-        console.error('[Admin Users] Error updating user status:', error);
         throw error;
     }
 }
@@ -148,46 +123,28 @@ export async function getUserStats(): Promise<UserStats> {
         weekStart.setDate(weekStart.getDate() - 7);
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        // DateをFirestore Timestampに変換
-        const todayStartTimestamp = Timestamp.fromDate(todayStart);
-        const weekStartTimestamp = Timestamp.fromDate(weekStart);
-        const monthStartTimestamp = Timestamp.fromDate(monthStart);
-
-        // 総ユーザー数
-        const totalSnapshot = await db.collection('users').get();
+        // createdAt を持つドキュメントのみ対象（getUsers と同じ条件）
+        const totalSnapshot = await db.collection('users').orderBy('createdAt').get();
         const totalUsers = totalSnapshot.size;
 
-        // アクティブユーザー数
-        const activeSnapshot = await db
-            .collection('users')
-            .where('isActive', '==', true)
-            .get();
-        const activeUsers = activeSnapshot.size;
-
-        // 今日の新規ユーザー
-        const todaySnapshot = await db
-            .collection('users')
-            .where('createdAt', '>=', todayStartTimestamp)
+        const todaySnapshot = await db.collection('users')
+            .where('createdAt', '>=', todayStart.toISOString())
             .get();
         const newUsersToday = todaySnapshot.size;
 
-        // 今週の新規ユーザー
-        const weekSnapshot = await db
-            .collection('users')
-            .where('createdAt', '>=', weekStartTimestamp)
+        const weekSnapshot = await db.collection('users')
+            .where('createdAt', '>=', weekStart.toISOString())
             .get();
         const newUsersThisWeek = weekSnapshot.size;
 
-        // 今月の新規ユーザー
-        const monthSnapshot = await db
-            .collection('users')
-            .where('createdAt', '>=', monthStartTimestamp)
+        const monthSnapshot = await db.collection('users')
+            .where('createdAt', '>=', monthStart.toISOString())
             .get();
         const newUsersThisMonth = monthSnapshot.size;
 
         return {
             totalUsers,
-            activeUsers,
+            activeUsers: totalUsers, // isActive フィールド未実装のため全件をアクティブとする
             newUsersToday,
             newUsersThisWeek,
             newUsersThisMonth,
@@ -207,18 +164,16 @@ export async function getUserLogs(
 ): Promise<any[]> {
     try {
         const snapshot = await db
+            .collection('users')
+            .doc(userId)
             .collection('logs')
-            .where('userId', '==', userId)
             .orderBy('createdAt', 'desc')
             .limit(limit)
             .get();
 
         const logs: any[] = [];
         snapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-            logs.push({
-                logId: doc.id,
-                ...doc.data(),
-            });
+            logs.push({ logId: doc.id, ...doc.data() });
         });
 
         return logs;

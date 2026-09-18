@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/admin-jwt';
 import { findAdminById, recordAuditLog } from '@/lib/admin-firestore';
-import { getUserById, deleteUser, updateUserStatus, getUserLogs } from '@/lib/admin-users';
+import { getUserById, deleteUser, getUserLogs } from '@/lib/admin-users';
 
 /**
  * GET /api/admin/users/[id]
@@ -67,17 +67,19 @@ export async function GET(
         // 最近の散歩記録を取得
         const recentLogs = await getUserLogs(id, 10);
 
-        // Timestampを文字列に変換
-        const userResponse = {
-            ...user,
-            createdAt: user.createdAt.toDate().toISOString(),
-            updatedAt: user.updatedAt ? user.updatedAt.toDate().toISOString() : null,
-            lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toDate().toISOString() : null,
+        // createdAt / lastLoginAt は ISO 文字列として保存されているためそのまま使用
+        const userResponse = { ...user };
+
+        const convertTs = (ts: any): string | null => {
+            if (!ts) return null;
+            if (typeof ts === 'string') return ts;
+            if (ts.toDate) return ts.toDate().toISOString();
+            return null;
         };
 
         const logsResponse = recentLogs.map((log) => ({
             ...log,
-            createdAt: log.createdAt?.toDate().toISOString() || null,
+            createdAt: convertTs(log.createdAt),
         }));
 
         return NextResponse.json({
@@ -145,28 +147,6 @@ export async function PATCH(
             return NextResponse.json(
                 { success: false, error: 'ユーザーが見つかりません' },
                 { status: 404 }
-            );
-        }
-
-        // リクエストボディを取得
-        const body = await req.json();
-
-        // アクティブ状態の更新のみ対応
-        if (body.isActive !== undefined) {
-            await updateUserStatus(id, body.isActive);
-
-            // 監査ログ記録
-            await recordAuditLog(
-                admin.adminId,
-                'update',
-                'user',
-                id,
-                {
-                    before: { isActive: user.isActive },
-                    after: { isActive: body.isActive },
-                },
-                req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
-                req.headers.get('user-agent') || 'unknown'
             );
         }
 
@@ -247,10 +227,7 @@ export async function DELETE(
             'user',
             id,
             {
-                before: {
-                    email: user.email,
-                    username: user.username,
-                },
+                before: { userId: user.userId },
                 after: null,
             },
             req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
